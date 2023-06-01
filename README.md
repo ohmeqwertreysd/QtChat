@@ -1,1 +1,1 @@
-# chat-application 
+# QtChat
