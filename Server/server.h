@@ -4,17 +4,25 @@
 
 
 #include <QObject>
+#include <QDebug>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QList>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonValue>
+#include <QJsonParseError>
+#include <QDateTime>
 #include "user.h"
 
 enum class Commands {
     Connect = 0,
     Message = 1,
     ErrorNameUsed = 2,
-    ErrorConnect = 3
+    ErrorConnect = 3,
+    SucsConnect = 4
 };
 
 class Server : public QObject
@@ -22,21 +30,28 @@ class Server : public QObject
     Q_OBJECT
 public:
     explicit Server(QObject *parent = nullptr);
-    void sendMessageForAll(const QString& message);
-    void sendMessageForSocket(QTcpSocket* socket, Commands command, const QString& message);
+
+    void newUserAuthorization(QTcpSocket* socketSender, const QString& name);
+
+    void sendMessageForAllUsers(QTcpSocket* socketSender, const QByteArray& json);
+    void sendMessageForSocket(QTcpSocket* socketReceiver, const QByteArray& json);
+signals:
+    void newAuthorization(User* newUser);
+public slots:
+    void newUserNotification(User* newUser);
 private slots:
     void newConnection();
     void readSocket();
     void onDisconnect();
 private:
-    QString deserializeMessage(Commands command, const QString& message, QTcpSocket* socket);
-    QByteArray serializeMessage(Commands command, const QString& message);
+    void deserialize(QTcpSocket* socketSender, const QByteArray& received);
+    QByteArray serializeMessage(const QString& name, Commands command, const QString& message);
+    QByteArray serializeMessageSize(const QByteArray& received);
 private:
     QTcpServer* m_pTcpServer;
     quint16 m_pNextBlockSize;
     QList<User*> m_pUsers;
     QSet<QString> m_pNames;
-    quint8 _status;
 };
 
 #endif // MYSERVER_H

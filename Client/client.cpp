@@ -9,6 +9,7 @@ Client::Client(QObject *parent) :
     connect(m_pTcpSocket, SIGNAL(disconnected()), this, SIGNAL(disconnected()));
     connect(m_pTcpSocket, SIGNAL(readyRead()), this, SLOT(readSocket()));
     connect(m_pTcpSocket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), this, SLOT(socketErrorOccurred(QAbstractSocket::SocketError)));
+    connect(m_pTcpSocket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), this, SIGNAL(errorOccurred(QAbstractSocket::SocketError)));
 }
 
 Client::~Client()
@@ -16,7 +17,7 @@ Client::~Client()
 
 void Client::connectServer(const QString& name, const QHostAddress& addr, const quint16& port)
 {
-    username = name;
+    m_pUsername = name;
     m_pTcpSocket->connectToHost(addr, port);
 }
 
@@ -27,7 +28,13 @@ void Client::disconnectServer()
 
 void Client::sendMessage(const QString& message)
 {
-    m_pTcpSocket->write(serializeMessage(Commands::Message, message));
+    if(!m_pTcpSocket->isValid())
+    {
+        return;
+    }
+    QJsonObject json = createJSON(Commands::Message, message);
+    m_pTcpSocket->write(serializeMessage(json));
+    emit messageReceived(json);
 }
 
 void Client::readSocket()
@@ -50,51 +57,63 @@ void Client::readSocket()
     {
         m_pBlockSize = 0;
     }
-    QString message;
-    quint8 command;
-    in >> command >> message;
-
-    emit messageReceived(deserializeMessage(static_cast<Commands>(command), message));
+    emit messageReceived(deserialize(m_pTcpSocket->readAll()));
 }
 
-void Client::socketErrorOccurred(QAbstractSocket::SocketError) const
+void Client::socketErrorOccurred(QAbstractSocket::SocketError error) const
 {
-
+    qDebug() << m_pTcpSocket->errorString();
 }
 
 void Client::connected()
 {
-    m_pTcpSocket->write(serializeMessage(Commands::Connect, username));
+    m_pTcpSocket->write(serializeMessage(createJSON(Commands::Connect, m_pUsername)));
 }
 
-QString Client::deserializeMessage(Commands command, const QString& message)
+QJsonObject Client::deserialize(const QByteArray& received)
 {
-    QString messageString;
+    QJsonParseError err;
+    QJsonDocument json = QJsonDocument::fromJson(received, &err);
+    QJsonObject jsonParse = json.object();
+
+    Commands command = static_cast<Commands>(jsonParse.value("CommandCode").toInt());
     switch (command) {
-    case Commands::Connect:
-        return message;
-        break;
     case Commands::Message:
-        return message;
+        return jsonParse;
         break;
     case Commands::ErrorNameUsed:
-        messageString = QString("Name \"%1\" is already used, change it and reconnect").arg(username);
+        return jsonParse;
         break;
-    case Commands::ErrorConnect:
-        messageString = "Failed to connect to the server";
+    case Commands::SucsConnect:
+        return jsonParse;
         break;
     default:
         break;
     }
-    return messageString;
+    return jsonParse;
 }
 
-QByteArray Client::serializeMessage(Commands command, const QString& message)
+QJsonObject Client::createJSON(Commands command, const QString& message)
 {
+    QJsonObject textObject;
+    textObject.insert("Name", m_pUsername);
+    textObject.insert("Message", message);
+    textObject.insert("CommandCode", static_cast<quint8>(command));
+    textObject.insert("Date", QDate::currentDate().toString("dd.MM.yy"));
+    textObject.insert("Time", QTime::currentTime().toString("hh:mm:ss"));
+    return textObject;
+}
+
+QByteArray Client::serializeMessage(const QJsonObject& json)
+{
+    QJsonDocument doc;
+    doc.setObject(json);
+    QByteArray jsonArray = doc.toJson(QJsonDocument::Compact);
+
+
     QByteArray block;
     QDataStream out(&block, QIODevice::WriteOnly);
-    out << (quint16)0 << (quint8)command << message;
-    out.device()->seek(0);
-    out<< (quint16)(block.size() - sizeof(quint16));
+    out << static_cast<quint16>(json.size() - sizeof(quint16));
+    block.append(jsonArray);
     return block;
 }

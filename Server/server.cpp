@@ -1,41 +1,37 @@
-
 #include "server.h"
-#include <QDateTime>
-#include <QDebug>
 
 Server::Server(QObject *parent) :
     QObject(parent),
     m_pNextBlockSize(0)
 {
+    this->m_pNames.insert("Server");
     this->m_pTcpServer = new QTcpServer();
-    if(!m_pTcpServer->listen(QHostAddress::LocalHost, 1234))
+    if(m_pTcpServer->listen(QHostAddress::LocalHost, 1234))
     {
-        this->_status = 0;
-    }
-    else
-    {
-        this->_status = 1;
         connect(m_pTcpServer, SIGNAL(newConnection()), this, SLOT(newConnection()));
+        connect(this, SIGNAL(newAuthorization(User*)), this, SLOT(newUserNotification(User*)));
     }
 }
 
-void Server::sendMessageForAll(const QString& message)
+void Server::sendMessageForAllUsers(QTcpSocket* socketSender, const QByteArray& json)
 {
-    QByteArray block = serializeMessage(Commands::Message, message);
     for(auto u : m_pUsers)
     {
-        u->getSocket()->write(block);
+        if(u->getSocket() != socketSender)
+        {
+            u->getSocket()->write(json);
+        }
     }
 }
 
-void Server::sendMessageForSocket(QTcpSocket* socket, Commands command, const QString& message)
+void Server::sendMessageForSocket(QTcpSocket* socketReceiver,const QByteArray& json)
 {
-    QByteArray block = serializeMessage(command, message);
-    socket->write(block);
+    socketReceiver->write(json);
 }
 
 void Server::newConnection()
 {
+    qDebug() << "Accept connection";
     QTcpSocket* clientSocket = m_pTcpServer->nextPendingConnection();
     User* newUser = new User();
     newUser->setSocket(clientSocket);
@@ -57,28 +53,27 @@ void Server::onDisconnect()
         }
     }
     QString name = user->getUserName();
-    QString currentTime = QTime::currentTime().toString();
     m_pUsers.removeAll(user);
     m_pNames.remove(name);
-    sendMessageForAll(QString("%1 %2 left").arg(currentTime, name));
-    qDebug() << QString("%1 %2 left").arg(currentTime, name);
+    sendMessageForAllUsers(nullptr, serializeMessage("Server", Commands::Message, QString("%1 left").arg(name)));
+    qDebug() << QString("%1 left").arg(name);
 }
 
 void Server::readSocket()
 {
-    QTcpSocket* clientSocket = qobject_cast<QTcpSocket*>(sender());
+    QTcpSocket* socketSender = qobject_cast<QTcpSocket*>(sender());
 
-    QDataStream in(clientSocket);
+    QDataStream in(socketSender);
 
     if(m_pNextBlockSize == 0)
     {
-        if(clientSocket->bytesAvailable() < sizeof(quint16))
+        if(socketSender->bytesAvailable() < sizeof(quint16))
         {
             return;
         }
         in >> m_pNextBlockSize;
     }
-    if(clientSocket->bytesAvailable() < m_pNextBlockSize)
+    if(socketSender->bytesAvailable() < m_pNextBlockSize)
     {
         return;
     }
@@ -86,23 +81,12 @@ void Server::readSocket()
     {
         m_pNextBlockSize = 0;
     }
-    quint8 command;
-    in >> command;
-    QString message;
-    in >> message;
 
-    message = deserializeMessage(static_cast<Commands>(command), message, clientSocket);
-    if(!message.isEmpty())
-    {
-        qDebug() << message;
-        sendMessageForAll(message);
-    }
+    deserialize(socketSender, socketSender->readAll());
 }
 
-QString Server::deserializeMessage(Commands command, const QString& message, QTcpSocket* socket)
+void Server::newUserAuthorization(QTcpSocket* socket, const QString& name)
 {
-    QString messageString;
-    QString currentTime = QTime::currentTime().toString();
     User* user;
     for(auto u : m_pUsers)
     {
@@ -112,39 +96,77 @@ QString Server::deserializeMessage(Commands command, const QString& message, QTc
             break;
         }
     }
+    if(m_pNames.contains(name))
+    {
+        sendMessageForSocket(socket, serializeMessage("Server", Commands::ErrorNameUsed, QString("Name \"%1\" is already used, change it and reconnect").arg(name)));
+        disconnect(socket, SIGNAL(readyRead()), this, SLOT(readSocket()));
+        disconnect(socket, SIGNAL(disconnected()), this, SLOT(onDisconnect()));
+        socket->disconnect();
+        m_pUsers.removeAll(user);
+    }
+    else
+    {
+        m_pNames.insert(name);
+        user->setUserName(name);
+        emit newAuthorization(user);
+    }
+}
+
+void Server::newUserNotification(User* newUser)
+{
+    qDebug() << QString("%1 joined").arg(newUser->getUserName());
+    QByteArray block = serializeMessage("Server", Commands::Message, QString("%1 joined").arg(newUser->getUserName()));
+    for(auto u : m_pUsers)
+    {
+        if(u->getSocket() != newUser->getSocket())
+        {
+            u->getSocket()->write(block);
+        }
+    }
+    newUser->getSocket()->write(serializeMessage("Server", Commands::SucsConnect, QString("Welcome to the server")));
+}
+
+void Server::deserialize(QTcpSocket* socketSender, const QByteArray& received)
+{
+    QJsonParseError err;
+    QJsonDocument json = QJsonDocument::fromJson(received, &err);
+    QJsonObject jsonParse = json.object();
+
+    Commands command = static_cast<Commands>(jsonParse.value("CommandCode").toInt());
     switch (command)
     {
     case Commands::Connect:
-        if(m_pNames.contains(message))
-        {
-            sendMessageForSocket(socket, Commands::ErrorNameUsed, "");
-            socket->disconnect();
-            m_pUsers.removeAll(user);
-            return "";
-        }
-        else
-        {
-            m_pNames.insert(message);
-            user->setUserName(message);
-            messageString = QString("%1 %2 joined").arg(currentTime, message);
-        }
+        newUserAuthorization(socketSender, jsonParse.value("Name").toString());
         break;
     case Commands::Message:
-        messageString = QString("%1 [%2]: %3").arg(currentTime, user->getUserName(), message);
+        sendMessageForAllUsers(socketSender, serializeMessageSize(received));
         break;
     default:
         break;
     }
-
-    return messageString;
 }
 
-QByteArray Server::serializeMessage(Commands command, const QString& message)
+QByteArray Server::serializeMessage(const QString& name, Commands command, const QString& message)
+{
+    QJsonDocument doc;
+    QJsonObject textObject;
+    textObject.insert("Name", name);
+    textObject.insert("Message", message);
+    textObject.insert("CommandCode", static_cast<quint8>(command));
+    textObject.insert("Date", QDate::currentDate().toString("dd.MM.yy"));
+    textObject.insert("Time", QTime::currentTime().toString("hh:mm:ss"));
+    doc.setObject(textObject);
+    QByteArray json = doc.toJson(QJsonDocument::Compact);
+
+    return serializeMessageSize(json);
+}
+
+QByteArray Server::serializeMessageSize(const QByteArray& received)
 {
     QByteArray block;
     QDataStream out(&block, QIODevice::WriteOnly);
-    out << (quint16)0 << static_cast<quint8>(command) << message;
-    out.device()->seek(0);
-    out << (quint16)(block.size() - sizeof(quint16));
+    qDebug() << static_cast<quint16>(received.size() - sizeof(quint16));
+    out << static_cast<quint16>(received.size() - sizeof(quint16));
+    block.append(received);
     return block;
 }

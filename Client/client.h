@@ -5,12 +5,17 @@
 #include <QByteArray>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDateTime>
 
 enum class Commands {
     Connect = 0,
     Message = 1,
     ErrorNameUsed = 2,
-    ErrorConnect = 3
+    ErrorConnect = 3,
+    SucsConnect = 4
 };
 
 class Client : public QObject
@@ -25,25 +30,26 @@ public:
 public slots:
     void sendMessage(const QString& message);
 signals:
-    void messageReceived(const QString& message);
-    void connected(const QString& name);
+    void messageReceived(const QJsonObject& json);
+    void fileReceided(const QString& fileName);
     void disconnected();
-    void errorOccurred(QAbstractSocket::SocketError);
+    void errorOccurred(QAbstractSocket::SocketError error);
 private slots:
     void readSocket();
-    void socketErrorOccurred(QAbstractSocket::SocketError) const;
+    void socketErrorOccurred(QAbstractSocket::SocketError error) const;
     void connected();
 
 private:
-    QString deserializeMessage(Commands command, const QString& message);
-    QByteArray serializeMessage(Commands command, const QString& message);
+    QJsonObject deserialize(const QByteArray& received);
+    QJsonObject createJSON(Commands command, const QString& message);
+    QByteArray serializeMessage(const QJsonObject& json);
 private:
 
     QTcpSocket* m_pTcpSocket;
     QHostAddress m_pAddr;
     quint16 m_pPort;
     quint16 m_pBlockSize;
-    QString username;
+    QString m_pUsername;
 };
 
 
