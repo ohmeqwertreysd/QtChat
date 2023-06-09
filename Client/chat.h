@@ -2,11 +2,13 @@
 #define CHAT_H
 
 #include <QMainWindow>
+#include <QMessageBox>
 #include <QFileDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDateTime>
+#include "filewidgetitem.h"
 #include "client.h"
 
 namespace Ui {
@@ -20,21 +22,40 @@ class Chat : public QMainWindow
 public:
     explicit Chat(QWidget *parent = nullptr);
     ~Chat();
-
-    void changeStateFields();
+signals:
+    void downloadFile(const QString&, const QString&, const QString&);
+    void sendFile(const QString&, const QString&);
 private slots:
     void connectClicked();
     void disconnectClicked();
     void sendClicked();
-    void sendFileClicked();
+    void loginClicked();
+    void registrationClicked();
+    void downloadClicked();
+    void uploadClicked();
 
+    void sendPressed();
+    void sendReleased();
+
+    void clientConnected();
     void clientDisconnected();
     void errorOccured(QAbstractSocket::SocketError socketError);
+    void loginFailed(const QString& error);
 
-    void showMessage(const QJsonObject& json);
+    void successAuthorization(const QJsonObject& json);
+
+    void showNewMessage(const QJsonObject& json);
+    void showNewFile(const QJsonObject& json);
+    void updateListOfMessages(const QJsonObject& json);
+    void updateListOfOnlineUsers(const QJsonObject& json);
+    void updateListOfFiles(const QJsonObject& json);
+
+    void fileProgressStarted();
+    void fileProgressEnded();
     void setChatCursorToEnd();
 private:
-    Ui::Chat *ui;
+    Ui::Chat *ui_chat;
+
     Client* client;
 };
 

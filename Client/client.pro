@@ -11,11 +11,13 @@ CONFIG += c++17
 SOURCES += \
     chat.cpp \
     client.cpp \
+    filewidgetitem.cpp \
     main.cpp
 
 HEADERS += \
     chat.h \
-    client.h
+    client.h \
+    filewidgetitem.h
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
@@ -24,3 +26,6 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 FORMS += \
     chat.ui
+
+RESOURCES += \
+    Resource.qrc

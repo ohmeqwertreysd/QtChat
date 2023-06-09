@@ -7,51 +7,65 @@
 #include <QDebug>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QList>
 #include <QHash>
+#include <QSet>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonArray>
-#include <QJsonValue>
 #include <QJsonParseError>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include "user.h"
+#include "database.h"
 
 enum class Commands {
-    Connect = 0,
-    Message = 1,
-    ErrorNameUsed = 2,
-    ErrorConnect = 3,
-    SucsConnect = 4
+    Registration,
+    Login,
+    Message,
+    File,
+    ErrorNameUsed,
+    LoginFailed,
+    SuccsConnect,
+    ListOfOnlineUsers,
+    ListOfFiles,
+    FileAccepted,
+    ServerNewFile,
+    RequestFile
 };
+
+typedef bool(Database::*authFunc)(const QJsonObject&);
 
 class Server : public QObject
 {
     Q_OBJECT
 public:
     explicit Server(QObject *parent = nullptr);
-
-    void newUserAuthorization(QTcpSocket* socketSender, const QString& name);
-
-    void sendMessageForAllUsers(QTcpSocket* socketSender, const QByteArray& json);
-    void sendMessageForSocket(QTcpSocket* socketReceiver, const QByteArray& json);
-signals:
-    void newAuthorization(User* newUser);
-public slots:
-    void newUserNotification(User* newUser);
+    ~Server();
+public slots:    
+    void sendForAll(const QByteArray& json);
 private slots:
     void newConnection();
     void readSocket();
     void onDisconnect();
+    void successfulAuthorization(QTcpSocket* socketSender, const QString& username);
 private:
-    void deserialize(QTcpSocket* socketSender, const QByteArray& received);
-    QByteArray serializeMessage(const QString& name, Commands command, const QString& message);
-    QByteArray serializeMessageSize(const QByteArray& received);
+    void parse(QTcpSocket* socketSender, const QByteArray& received);
+    void readFile(QTcpSocket* socketSender, QJsonObject& json_obj);
+    void sendFile(QTcpSocket* socketSender, const QJsonObject& json_obj);
+    void convertFileJsonToMessageJson(QJsonObject& json_obj);
+    QByteArray serializeCommand(Commands command);
+    QByteArray serializeJson(const QJsonObject& json_obj);
+    QByteArray serializeJsonSize(const QByteArray& received);
+    QByteArray serializeOnlineList();
+    void tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObject& json_obj, Commands command);
+    void normalizeDataInJson(QTcpSocket* socketSender, QJsonObject& json_obj);
 private:
+    Database* m_pDB;
     QTcpServer* m_pTcpServer;
-    quint16 m_pNextBlockSize;
-    QList<User*> m_pUsers;
-    QSet<QString> m_pNames;
+    quint64 m_pNextBlockSize;
+    QHash<QTcpSocket*, QString> m_pUsersLogged;
+    QSet<QTcpSocket*> m_pUsersWaitingForLogin;
 };
 
 #endif // MYSERVER_H
