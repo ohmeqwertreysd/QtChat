@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/icon">
+        <file>Resource/file_notselected.png</file>
+        <file>Resource/file_selected.png</file>
+        <file>Resource/download.png</file>
+        <file>Resource/upload.png</file>
+        <file>Resource/send_clicked.png</file>
+        <file>Resource/send_notclicked.png</file>
+    </qresource>
+    <qresource prefix="/"/>
+</RCC>
