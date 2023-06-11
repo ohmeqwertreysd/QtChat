@@ -16,23 +16,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include "user.h"
+#include "../src/jsonbuild.h"
+#include "../src/jsonparse.h"
 #include "database.h"
-
-enum class Commands {
-    Registration,
-    Login,
-    Message,
-    File,
-    ErrorNameUsed,
-    LoginFailed,
-    SuccsConnect,
-    ListOfOnlineUsers,
-    ListOfFiles,
-    FileAccepted,
-    ServerNewFile,
-    RequestFile
-};
 
 typedef bool(Database::*authFunc)(const QJsonObject&);
 
@@ -51,15 +37,11 @@ private slots:
     void successfulAuthorization(QTcpSocket* socketSender, const QString& username);
 private:
     void parse(QTcpSocket* socketSender, const QByteArray& received);
-    void readFile(QTcpSocket* socketSender, QJsonObject& json_obj);
+    void readMessage(QTcpSocket* socketSender, const QJsonObject& json_obj);
+    void readFile(QTcpSocket* socketSender, const QJsonObject& json_obj);
     void sendFile(QTcpSocket* socketSender, const QJsonObject& json_obj);
-    void convertFileJsonToMessageJson(QJsonObject& json_obj);
-    QByteArray serializeCommand(Commands command);
-    QByteArray serializeJson(const QJsonObject& json_obj);
-    QByteArray serializeJsonSize(const QByteArray& received);
     QByteArray serializeOnlineList();
-    void tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObject& json_obj, Commands command);
-    void normalizeDataInJson(QTcpSocket* socketSender, QJsonObject& json_obj);
+    void tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObject& json_obj, Command command);
 private:
     Database* m_pDB;
     QTcpServer* m_pTcpServer;

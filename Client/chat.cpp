@@ -4,7 +4,7 @@
 Chat::Chat(QWidget *parent) :
     QMainWindow(parent),
     ui_chat(new Ui::Chat),
-    client(new Client(this))
+    client(new Client())
 {
     ui_chat->setupUi(this);
     ui_chat->progressBar->setVisible(false);
@@ -22,19 +22,19 @@ Chat::Chat(QWidget *parent) :
 
     connect(client, SIGNAL(connected()), this, SLOT(clientConnected()));
     connect(client, SIGNAL(disconnected()), this, SLOT(clientDisconnected()));
-    connect(client, SIGNAL(messageReceived(QJsonObject)), this, SLOT(showNewMessage(QJsonObject)));
-    connect(client, SIGNAL(fileReceived(QJsonObject)), this, SLOT(showNewFile(QJsonObject)));
+    connect(client, SIGNAL(messageReceived(JsonMessage)), this, SLOT(showNewMessage(JsonMessage)));
+    connect(client, SIGNAL(fileReceived(JsonFile)), this, SLOT(showNewFile(JsonFile)));
     connect(client, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), this, SLOT(errorOccured(QAbstractSocket::SocketError)));
     connect(client, SIGNAL(loginFailed(QString)), this, SLOT(loginFailed(QString)));
     connect(client, SIGNAL(successAuthorizated(QJsonObject)), this, SLOT(successAuthorization(QJsonObject)));
-    connect(client, SIGNAL(listOfUsersReceived(QJsonObject)), this, SLOT(updateListOfOnlineUsers(QJsonObject)));
-    connect(client, SIGNAL(listOfFilesReceived(QJsonObject)), this, SLOT(updateListOfFiles(QJsonObject)));
-    connect(client, SIGNAL(fileProgressChanged(int)), ui_chat->progressBar, SLOT(setValue(int)));
+    connect(client, SIGNAL(listOfUsersReceived(JsonUser)), this, SLOT(updateListOfOnlineUsers(JsonUser)));
+    connect(client, SIGNAL(listOfFilesReceived(JsonFile)), this, SLOT(updateListOfFiles(JsonFile)));
 
+    connect(client, SIGNAL(fileProgressChanged(int)), ui_chat->progressBar, SLOT(setValue(int)));
     connect(client, SIGNAL(fileProgressStart()), this, SLOT(fileProgressStarted()));
     connect(client, SIGNAL(fileProgressEnd()), this, SLOT(fileProgressEnded()));
 
-    connect(this, SIGNAL(downloadFile(QString,QString,QString)), client, SLOT(downloadFile(QString,QString,QString)));
+    connect(this, SIGNAL(downloadFile(QString,QString,QString)), client, SLOT(downloadRequestFile(QString,QString,QString)));
     connect(this, SIGNAL(sendFile(QString,QString)), client, SLOT(sendFile(QString,QString)));
 }
 
@@ -77,6 +77,7 @@ void Chat::loginClicked()
 {
     if(client->isConnected() && !client->isAuth())
     {
+        qDebug() << "login";
         client->loginUser(ui_chat->usernameString->text(), ui_chat->passwordString->text());
     }
 }
@@ -100,9 +101,8 @@ void Chat::downloadClicked()
     {
         return;
     }
-    QListWidget * widgets = item->listWidget();
-    QWidget* widget = widgets->itemWidget(item);
-    QString filename_original = dynamic_cast<FileWidgetItem*>(widgets->itemWidget(item))->getFileName();
+    QListWidget * listWidget = item->listWidget();
+    QString filename_original = dynamic_cast<FileWidgetItem*>(listWidget->itemWidget(item))->getFileName();
     QString filename = QFileDialog::getSaveFileName(this, "Save File", filename_original);
     emit downloadFile(ui_chat->usernameString->text(), filename, filename_original);
 }
@@ -155,36 +155,25 @@ void Chat::loginFailed(const QString& error)
 
 void Chat::successAuthorization(const QJsonObject& json)
 {
-    QJsonArray json_array = json.value("Data").toArray();
-    for(const QJsonValue& val : json_array)
-    {
-        QJsonObject json_obj = val.toObject();
-        if(json_obj.contains("Messages"))
-        {
-            updateListOfMessages(json_obj);
-        }
-        else if(json_obj.contains("Files"))
-        {
-            updateListOfFiles(json_obj);
-        }
-    }
+    updateListOfMessages(JsonMessage(json));
+    updateListOfFiles(JsonFile(json));
 }
 
-void Chat::showNewMessage(const QJsonObject& json)
+void Chat::showNewMessage(const JsonMessage& json)
 {
     QString message = QString("%1 [%2]: %3").
-                      arg(json.value("DateTime").toString(),
-                          json.value("Username").toString(),
-                          json.value("Message").toString());
+                      arg(json.getDateTime(),
+                          json.getUserName(),
+                          json.getMessage());
     ui_chat->chatBrowser->append(message);
 }
 
-void Chat::showNewFile(const QJsonObject& json)
+void Chat::showNewFile(const JsonFile& json)
 {
     FileWidgetItem* item = new FileWidgetItem(this);
-    item->setFileName(json.value("Filename").toString(), ui_chat->filesListWidget->batchSize());
-    item->setFileLength(json.value("FileLength").toInteger());
-    item->setDateTime(json.value("DateTime").toString());
+    item->setFileName(json.getFileName(), ui_chat->filesListWidget->batchSize());
+    item->setFileLength(json.getFileLength());
+    item->setDateTime(json.getDateTime());
     item->setIcon(":/icon/Resource/file_notselected.png");
     QListWidgetItem* widgetItem = new QListWidgetItem(ui_chat->filesListWidget);
     widgetItem->setSizeHint(item->sizeHint());
@@ -192,37 +181,30 @@ void Chat::showNewFile(const QJsonObject& json)
     ui_chat->filesListWidget->setItemWidget(widgetItem, item);
 }
 
-void Chat::updateListOfMessages(const QJsonObject& json)
+void Chat::updateListOfMessages(JsonMessage json)
 {
-    QJsonArray json_array = json.value("Messages").toArray();
-    for(const QJsonValue& val : json_array)
+    while(json.next())
     {
-        if(val.isObject())
-        {
-            showNewMessage(val.toObject());
-        }
+        showNewMessage(json);
     }
 }
 
-void Chat::updateListOfOnlineUsers(const QJsonObject& json)
+void Chat::updateListOfOnlineUsers(JsonUser json)
 {
     ui_chat->usersList->clear();
-    QJsonArray json_array = json.value("Users").toArray();
-    for(const QJsonValue& val : json_array)
+    qDebug() << "User list";
+    while(json.next())
     {
-        ui_chat->usersList->addItem(val.toString());
+        qDebug() << json.getUserName();
+        ui_chat->usersList->addItem(json.getUserName());
     }
 }
 
-void Chat::updateListOfFiles(const QJsonObject& json)
+void Chat::updateListOfFiles(JsonFile json)
 {
-    QJsonArray json_array = json.value("Files").toArray();
-    for(const QJsonValue& val : json_array)
+    while(json.next())
     {
-        if(val.isObject())
-        {
-            showNewFile(val.toObject());
-        }
+        showNewFile(json);
     }
 }
 

@@ -8,7 +8,10 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDateTime>
+#include <QThread>
 #include "filewidgetitem.h"
+#include "../src/jsonbuild.h"
+#include "../src/jsonparse.h"
 #include "client.h"
 
 namespace Ui {
@@ -44,18 +47,17 @@ private slots:
 
     void successAuthorization(const QJsonObject& json);
 
-    void showNewMessage(const QJsonObject& json);
-    void showNewFile(const QJsonObject& json);
-    void updateListOfMessages(const QJsonObject& json);
-    void updateListOfOnlineUsers(const QJsonObject& json);
-    void updateListOfFiles(const QJsonObject& json);
+    void showNewMessage(const JsonMessage& json);
+    void showNewFile(const JsonFile& json);
+    void updateListOfMessages(JsonMessage json);
+    void updateListOfOnlineUsers(JsonUser json);
+    void updateListOfFiles(JsonFile json);
 
     void fileProgressStarted();
     void fileProgressEnded();
     void setChatCursorToEnd();
 private:
     Ui::Chat *ui_chat;
-
     Client* client;
 };
 
