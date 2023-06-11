@@ -15,7 +15,9 @@ FileWidgetItem::FileWidgetItem(QWidget* parent)
     this->formLayout = new QHBoxLayout();
     this->formLayout->addWidget(this->icon, 0);
     this->formLayout->addLayout(textLayout, 1);
+    this->formLayout->layout()->setContentsMargins(1,1,1,1);
     this->setLayout(formLayout);
+
 
     this->filename_displayed->setStyleSheet("font: 10pt \"Open Sans\";");
     this->filelength->setStyleSheet("font: 9pt \"Open Sans\"; color: white");
@@ -26,7 +28,7 @@ void FileWidgetItem::setFileName(const QString& text, int stringWidth)
 {
 
     QFontMetrics metrics(this->filename_displayed->font());
-    this->filename_displayed->setText(metrics.elidedText(text, Qt::ElideRight, stringWidth));
+    this->filename_displayed->setText(metrics.elidedText(text, Qt::ElideRight, stringWidth - 35));
     this->filename_displayed->setToolTip(text);
     this->filename = text;
 }

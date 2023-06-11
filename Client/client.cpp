@@ -1,10 +1,11 @@
 #include "client.h"
 
 Client::Client(QObject *parent) :
-    m_pBlockSize(0),
+    QObject(parent),
+    m_pBlockSize(0U),
     isLogin(false)
 {
-    this->m_pTcpSocket = new QTcpSocket(this);
+    this->m_pTcpSocket = new QTcpSocket();
 
     connect(m_pTcpSocket, SIGNAL(connected()), this, SLOT(connectedServer()));
     connect(m_pTcpSocket, SIGNAL(connected()), this, SIGNAL(connected()));
@@ -45,12 +46,13 @@ void Client::sendMessage(const QString& username, const QString& message)
         return;
     }
 
-    QJsonObject json_obj;
-    json_obj.insert("Username", username);
-    json_obj.insert("Message", message);
-    json_obj.insert("CommandCode", static_cast<quint8>(Commands::Message));
-
-    m_pTcpSocket->write(serializeJson(json_obj));
+    JsonMessageBuilder jsonMessage;
+    jsonMessage.setUserName(username);
+    jsonMessage.setMessage(message);
+    jsonMessage.getMessage();
+    m_pTcpSocket->write(JsonBuilder(jsonMessage).
+                        setCommandCode(Command::Message).
+                        serialize());
 }
 
 void Client::sendFile(const QString& username, const QString& filename)
@@ -62,63 +64,63 @@ void Client::sendFile(const QString& username, const QString& filename)
     QFileInfo file_info(filename);
     qint64 number_of_blocks = static_cast<qint64>(file_info.size() / bytes_per_read + 1);
     QByteArray hash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Md5).toHex();
-    QJsonObject json_obj;
-    json_obj.insert("Username", username);
-    json_obj.insert("Filename", file_info.fileName());
-    json_obj.insert("Hash", QString(hash));
-    json_obj.insert("NumberOfBlocks", number_of_blocks);
-    json_obj.insert("FileLength", file_info.size());
-    json_obj.insert("CommandCode", static_cast<quint8>(Commands::File));
+    JsonFileBuilder jsonFile;
+    jsonFile.setUserName(username);
+    jsonFile.setFileName(file_info.fileName());
+    jsonFile.setHash(QString(hash));
+    jsonFile.setNumberOfBlocks(number_of_blocks);
+    jsonFile.setFileLength(file_info.size());
     file.seek(0);
     qint64 current_block = 1;
     while(!file.atEnd())
     {
         QByteArray block = file.read(bytes_per_read);
-        json_obj["Filedata"] = QJsonValue::fromVariant(QVariant(block.toHex()));
-        json_obj["CurrentBlock"] = current_block;
-        m_pTcpSocket->write(serializeJson(json_obj));
+        jsonFile.setCurrentBlock(current_block);
+        jsonFile.setFileData(QString(block.toHex()));
+        m_pTcpSocket->write(JsonBuilder(jsonFile).
+                            setCommandCode(Command::File).
+                            serialize());
         m_pTcpSocket->waitForReadyRead();
-        emit fileProgressChanged(100 / number_of_blocks * current_block);
+        emit fileProgressChanged(100.0 / number_of_blocks * current_block);
         ++current_block;
     }
     file.close();
     emit fileProgressEnd();
 }
 
-void Client::downloadFile(const QString& username, const QString& filename, const QString& filename_original)
+void Client::downloadRequestFile(const QString& username, const QString& filename, const QString& filename_original)
 {
     QFileInfo file_info(filename);
-    QJsonObject json_obj;
-    json_obj.insert("Username", username);
-    json_obj.insert("Filename", file_info.fileName());
-    json_obj.insert("FilenameOriginal", filename_original);
-    json_obj.insert("FilePath", file_info.absolutePath());
-    json_obj.insert("CommandCode", static_cast<quint8>(Commands::RequestFile));
-    m_pTcpSocket->write(serializeJson(json_obj));
+    JsonFileBuilder jsonFile;
+    jsonFile.setUserName(username);
+    jsonFile.setFileName(file_info.fileName());
+    jsonFile.setFileNameSource(filename_original);
+    jsonFile.setFilePath(file_info.absolutePath());
+    m_pTcpSocket->write(JsonBuilder(jsonFile).
+                        setCommandCode(Command::RequestFile).
+                        serialize());
 }
 
-void Client::readFile(const QJsonObject& json)
+void Client::readFile(const JsonFile& json)
 {
     emit fileProgressStart();
-    QString filename = json.value("FilePath").toString() + "/" + json.value("Filename").toString();
+    QString filename = json.getFilePath() + "/" + json.getFileName();
     qDebug() << filename;
     QFile file(filename);
     file.open(QIODevice::WriteOnly | QIODevice::Append);
-    file.write(QByteArray::fromHex(json.value("Filedata").toString().toUtf8()));
+    file.write(QByteArray::fromHex(json.getFileData().toUtf8()));
     file.close();
-    emit fileProgressChanged(100 / json.value("NumberOfBlocks").toInteger() * json.value("CurrentBlock").toInteger());
-    if(json.value("NumberOfBlocks").toInteger() == json.value("CurrentBlock").toInteger())
+    emit fileProgressChanged(100.0 / json.getNumberOfBlocks() * json.getCurrentBlock());
+    if(json.getNumberOfBlocks() == json.getCurrentBlock())
     {
         file.open(QIODevice::ReadOnly);
         QByteArray hash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Md5).toHex();
         file.close();
         emit fileProgressEnd();
-        if(json.value("Hash").toString().toUtf8() == hash)
-        {
-            qDebug() << "hash equal";
-        }
     }
-    m_pTcpSocket->write(serializeCommand(Commands::FileAccepted));
+    m_pTcpSocket->write(JsonBuilder().
+                        setCommandCode(Command::FileAccepted).
+                        serialize());
 }
 
 void Client::registerUser(const QString& username, const QString& password)
@@ -128,12 +130,12 @@ void Client::registerUser(const QString& username, const QString& password)
         return;
     }
 
-    QJsonObject json_obj;
-    json_obj.insert("Username", username);
-    json_obj.insert("Password", password);
-    json_obj.insert("CommandCode", static_cast<quint8>(Commands::Registration));
-
-    m_pTcpSocket->write(serializeJson(json_obj));
+    JsonUserBuilder jsonUser;
+    jsonUser.setUserName(username);
+    jsonUser.setPassword(password);
+    m_pTcpSocket->write(JsonBuilder(jsonUser).
+                        setCommandCode(Command::Registration).
+                        serialize());
     m_pTcpSocket->waitForBytesWritten();
 }
 
@@ -144,12 +146,12 @@ void Client::loginUser(const QString& username, const QString& password)
         return;
     }
 
-    QJsonObject json_obj;
-    json_obj.insert("Username", username);
-    json_obj.insert("Password", password);
-    json_obj.insert("CommandCode", static_cast<quint8>(Commands::Login));
-
-    m_pTcpSocket->write(serializeJson(json_obj));
+    JsonUserBuilder jsonUser;
+    jsonUser.setUserName(username);
+    jsonUser.setPassword(password);
+    m_pTcpSocket->write(JsonBuilder(jsonUser).
+                        setCommandCode(Command::Login).
+                        serialize());
     m_pTcpSocket->waitForBytesWritten();
 }
 
@@ -188,60 +190,38 @@ void Client::connectedServer()
 
 void Client::parse(const QByteArray& received)
 {
-    QJsonParseError err;
-    QJsonDocument json = QJsonDocument::fromJson(received, &err);
-    QJsonObject jsonParse = json.object();
+    JsonParse jsonParse;
+    jsonParse.deserialize(received);
+    QJsonObject jsonObject = jsonParse.getJsonObject();
 
-    Commands command = static_cast<Commands>(jsonParse.value("CommandCode").toInt());
-    switch (command) {
-    case Commands::Message:
-        emit messageReceived(jsonParse);
+    switch (jsonParse.getCommandCode()) {
+    case Command::Message:
+        emit messageReceived(JsonMessage(jsonObject));
         break;
-    case Commands::ErrorNameUsed:
+    case Command::ErrorNameUsed:
         emit loginFailed("Username is already taken");
         break;
-    case Commands::LoginFailed:
+    case Command::LoginFailed:
         emit loginFailed("Wrong login or password");
         break;
-    case Commands::SuccsConnect:
+    case Command::SuccsConnect:
         isLogin = true;
-        emit successAuthorizated(jsonParse);
+        emit successAuthorizated(jsonObject);
         break;
-    case Commands::ListOfOnlineUsers:
-        emit listOfUsersReceived(jsonParse);
+    case Command::ListOfOnlineUsers:
+        emit listOfUsersReceived(JsonUser(jsonObject));
         break;
-    case Commands::ListOfFiles:
-        emit listOfFilesReceived(jsonParse);
+    case Command::ListOfFiles:
+        emit listOfFilesReceived(JsonFile(jsonObject));
         break;
-    case Commands::File:
-        readFile(jsonParse);
+    case Command::File:
+        readFile(JsonFile(jsonObject));
         break;
-    case Commands::ServerNewFile:
-        emit messageReceived(jsonParse);
-        emit fileReceived(jsonParse);
+    case Command::ServerNewFile:
+        emit messageReceived(JsonMessage(jsonObject));
+        emit fileReceived(JsonFile(jsonObject));
         break;
     default:
         break;
     }
-}
-
-QByteArray Client::serializeCommand(Commands command)
-{
-    QJsonObject json_obj;
-    json_obj.insert("CommandCode", static_cast<quint8>(command));
-    return serializeJson(json_obj);
-}
-
-QByteArray Client::serializeJson(const QJsonObject& json)
-{
-    QJsonDocument doc;
-    doc.setObject(json);
-    QByteArray jsonArray = doc.toJson(QJsonDocument::Compact);
-
-    QByteArray block;
-    QDataStream out(&block, QIODevice::WriteOnly);
-    out << static_cast<quint64>(jsonArray.size());
-    block.append(jsonArray);
-    qDebug() << "json size " << jsonArray.size();
-    return block;
 }

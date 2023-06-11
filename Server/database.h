@@ -3,17 +3,16 @@
 #define DATABASE_H
 
 #include <QObject>
-#include <QIODevice>
-#include <QByteArray>
 #include <QSql>
 #include <QSqlDatabase>
 #include <QSqlQuery>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QDateTime>
 #include <QCryptographicHash>
 #include <QUuid>
 #include <QRegularExpression>
+#include <QJsonObject>
+#include <QJsonArray>
+#include "../src/jsonbuild.h"
+#include "../src/jsonparse.h"
 
 class Database : public QObject
 {
@@ -21,8 +20,8 @@ class Database : public QObject
 public:
     explicit Database(QObject *parent = nullptr);
     ~Database();
-    QJsonObject getChatHistory();
-    QJsonObject getFiles();
+    QJsonArray getChatHistory();
+    QJsonArray getFiles();
     QJsonObject getFileInfo(const QString& filename);
 public slots:
     bool registerUser(const QJsonObject& json);

@@ -13,21 +13,8 @@
 #include <QJsonArray>
 #include <QDateTime>
 #include <QCryptographicHash>
-
-enum class Commands {
-    Registration,
-    Login,
-    Message,
-    File,
-    ErrorNameUsed,
-    LoginFailed,
-    SuccsConnect,
-    ListOfOnlineUsers,
-    ListOfFiles,
-    FileAccepted,
-    ServerNewFile,
-    RequestFile
-};
+#include "../src/jsonbuild.h"
+#include "../src/jsonparse.h"
 
 class Client : public QObject
 {
@@ -43,19 +30,19 @@ public slots:
     void disconnectServer();
     void sendMessage(const QString& username, const QString& message);
     void sendFile(const QString& username, const QString& filename);
-    void downloadFile(const QString& username, const QString& filename, const QString& filename_original);
-    void readFile(const QJsonObject& json);
+    void downloadRequestFile(const QString& username, const QString& filename, const QString& filename_original);
+    void readFile(const JsonFile& json);
     void registerUser(const QString& username, const QString& password);
     void loginUser(const QString& username, const QString& password);
 signals:
     void successAuthorizated(const QJsonObject&);
     void fileProgressChanged(const int&);
 
-    void listOfUsersReceived(const QJsonObject&);
-    void listOfFilesReceived(const QJsonObject&);
+    void listOfUsersReceived(JsonUser);
+    void listOfFilesReceived(JsonFile);
 
-    void messageReceived(const QJsonObject&);
-    void fileReceived(const QJsonObject&);
+    void messageReceived(const JsonMessage&);
+    void fileReceived(const JsonFile&);
 
     void fileProgressStart();
     void fileProgressEnd();
@@ -72,8 +59,6 @@ private slots:
 
 private:
     void parse(const QByteArray& received);
-    QByteArray serializeCommand(Commands command);
-    QByteArray serializeJson(const QJsonObject& json);
 private:
     bool isLogin;
     QTcpSocket* m_pTcpSocket;
