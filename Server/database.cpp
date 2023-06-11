@@ -25,61 +25,53 @@ Database::~Database()
     db.close();
 }
 
-QJsonObject Database::getChatHistory()
+QJsonArray Database::getChatHistory()
 {
-    QJsonObject json_obj;
-    QJsonArray json_array;
+    JsonMessageBuilder jsonMessageBuilder;
     QSqlQuery query(db);
     query.exec("SELECT * FROM MESSAGES");
 
     while(query.next())
     {
-        QJsonObject json_tmp;
-        json_tmp.insert("Username", query.value("Username").toString());
-        json_tmp.insert("Message", query.value("Message").toString());
-        json_tmp.insert("DateTime", query.value("DateTime").toString());
-        json_array.append(json_tmp);
+        jsonMessageBuilder.setUserName(query.value("Username").toString());
+        jsonMessageBuilder.setMessage(query.value("Message").toString());
+        jsonMessageBuilder.setDateTime(query.value("DateTime").toString());
+        jsonMessageBuilder.appendMessage();
     }
 
-    json_obj.insert("Messages", json_array);
-
-    return json_obj;
+    return jsonMessageBuilder.getMessages();
 }
 
-QJsonObject Database::getFiles()
+QJsonArray Database::getFiles()
 {
-    QJsonObject json_obj;
-    QJsonArray json_array;
+    JsonFileBuilder jsonFileBuilder;
     QSqlQuery query(db);
     query.exec("SELECT Filename, Filelength, DateTime FROM FILES");
 
     while(query.next())
     {
-        QJsonObject json_tmp;
-        json_tmp.insert("Filename", query.value("Filename").toString());
-        json_tmp.insert("FileLength", query.value("FileLength").toLongLong());
-        json_tmp.insert("DateTime", query.value("DateTime").toString());
-        json_array.append(json_tmp);
+        jsonFileBuilder.setFileName(query.value("Filename").toString());
+        jsonFileBuilder.setFileLength(query.value("FileLength").toLongLong());
+        jsonFileBuilder.setDateTime(query.value("DateTime").toString());
+        jsonFileBuilder.appendFile();
     }
 
-    json_obj.insert("Files", json_array);
-
-    return json_obj;
+    return jsonFileBuilder.getFiles();
 }
 
 QJsonObject Database::getFileInfo(const QString& filename)
 {
-    QJsonObject json_obj;
+    JsonFileBuilder jsonFileBuilder;
     QSqlQuery query(db);
     query.exec("SELECT Filename, FilePath, FileLength, Hash FROM FILES WHERE Filename='" + filename + "'");
     if(query.next())
     {
-        json_obj.insert("Filename", query.value("Filename").toString());
-        json_obj.insert("FilePath", query.value("FilePath").toString());
-        json_obj.insert("FileLength", query.value("FileLength").toLongLong());
-        json_obj.insert("Hash", query.value("Hash").toString());
+        jsonFileBuilder.setFileName(query.value("Filename").toString());
+        jsonFileBuilder.setFilePath(query.value("FilePath").toString());
+        jsonFileBuilder.setFileLength(query.value("FileLength").toLongLong());
+        jsonFileBuilder.setHash(query.value("Hash").toString());
     }
-    return json_obj;
+    return JsonBuilder(jsonFileBuilder).getJsonObject();
 }
 
 bool Database::usernameIsContained(const QString& username)
@@ -124,6 +116,7 @@ QString Database::generatePasswordHash(const QString& password, const QString& s
 
 bool Database::registerUser(const QJsonObject& json)
 {
+    JsonUser jsonUser(json);
     if(usernameIsContained(json.value("Username").toString()))
     {
         return false;
@@ -131,26 +124,27 @@ bool Database::registerUser(const QJsonObject& json)
     QString salt = generateSalt();
     QSqlQuery query(db);
     query.prepare("INSERT INTO USERS (Username, Salt) VALUES (:Username, :Salt)");
-    query.bindValue(":Username", json.value("Username").toString());
+    query.bindValue(":Username", jsonUser.getUserName());
     query.bindValue(":Salt", salt);
     query.exec();
     query.prepare("INSERT INTO HASHES (Hash) VALUES (:Hash)");
-    query.bindValue(":Hash", generatePasswordHash(json.value("Password").toString(), salt));
+    query.bindValue(":Hash", generatePasswordHash(jsonUser.getPassword(), salt));
     query.exec();
     return true;
 }
 
 bool Database::loginUser(const QJsonObject &json)
 {
-    if(!usernameIsContained(json.value("Username").toString()))
+    JsonUser jsonUser(json);
+    if(!usernameIsContained(jsonUser.getUserName()))
     {
         return false;
     }
     QSqlQuery query(db);
-    query.exec("SELECT Salt FROM USERS WHERE Username='" + json.value("Username").toString() + "'");
+    query.exec("SELECT Salt FROM USERS WHERE Username='" + jsonUser.getUserName() + "'");
     if(query.next())
     {
-        if(passwordIsContained(json.value("Password").toString(), query.value("Salt").toString()))
+        if(passwordIsContained(jsonUser.getPassword(), query.value("Salt").toString()))
         {
             return true;
         }
@@ -161,25 +155,27 @@ bool Database::loginUser(const QJsonObject &json)
 
 void Database::insertMessage(const QJsonObject& json)
 {
+    JsonMessage jsonMessage(json);
     QSqlQuery query(db);
     query.prepare("INSERT INTO MESSAGES (Username, Message, DateTime)"
                   "VALUES (:Username, :Message, :DateTime)");
-    query.bindValue(":Username", json.value("Username").toString());
-    query.bindValue(":Message", json.value("Message").toString());
-    query.bindValue(":DateTime", json.value("DateTime").toString());
+    query.bindValue(":Username", jsonMessage.getUserName());
+    query.bindValue(":Message", jsonMessage.getMessage());
+    query.bindValue(":DateTime", jsonMessage.getDateTime());
     query.exec();
 }
 
 void Database::insertFile(const QJsonObject& json)
 {
+    JsonFile jsonFile(json);
     QSqlQuery query(db);
     query.prepare("INSERT INTO FILES (Username, Filename, FilePath, FileLength, Hash, DateTime)"
                   "VALUES (:Username, :Filename, :FilePath, :FileLength, :Hash, :DateTime)");
-    query.bindValue(":Username", json.value("Username").toString());
-    query.bindValue(":Filename", json.value("Filename").toString());
-    query.bindValue(":FilePath", json.value("FilePath").toString());
-    query.bindValue(":FileLength", json.value("FileLength").toInteger());
-    query.bindValue(":Hash", json.value("Hash").toString());
-    query.bindValue(":DateTime", json.value("DateTime").toString());
+    query.bindValue(":Username", jsonFile.getUserName());
+    query.bindValue(":Filename", jsonFile.getFileName());
+    query.bindValue(":FilePath", jsonFile.getFilePath());
+    query.bindValue(":FileLength", jsonFile.getFileLength());
+    query.bindValue(":Hash", jsonFile.getHash());
+    query.bindValue(":DateTime", jsonFile.getDateTime());
     query.exec();
 }
