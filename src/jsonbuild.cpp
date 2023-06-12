@@ -42,9 +42,21 @@ JsonBuilder& JsonBuilder::insertJsonUsers(const QJsonArray& jsonUsers)
     return *this;
 }
 
+JsonBuilder& JsonBuilder::insertJsonMessage(const QJsonObject& jsonMessage)
+{
+    _json.insert("Message", jsonMessage);
+    return *this;
+}
+
 JsonBuilder& JsonBuilder::insertJsonMessages(const QJsonArray& jsonMessages)
 {
     _json.insert("Messages", jsonMessages);
+    return *this;
+}
+
+JsonBuilder& JsonBuilder::insertJsonFile(const QJsonObject& jsonFile)
+{
+    _json.insert("File", jsonFile);
     return *this;
 }
 
