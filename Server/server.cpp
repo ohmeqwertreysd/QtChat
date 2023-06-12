@@ -161,7 +161,10 @@ void Server::readFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
             jsonMessageBuilder.setUserName(m_pUsersLogged[socketSender]);
             jsonMessageBuilder.setDateTime(dateTime);
             jsonMessageBuilder.setMessage("Sent the file \"" + jsonFile.getFileName() + "\"");
-            JsonBuilder jsonBuilder(jsonMessageBuilder);
+            JsonBuilder jsonBuilder;
+            jsonBuilder.insertJsonMessage(jsonMessageBuilder.getMessage());
+            jsonBuilder.insertJsonFile(jsonFileBuilder.getFile());
+            jsonBuilder.setCommandCode(Command::ServerNewFile);
             m_pDB->insertMessage(jsonBuilder.getJsonObject());
             sendForAll(jsonBuilder.serialize());
         }
