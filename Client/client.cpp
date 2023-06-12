@@ -2,10 +2,9 @@
 
 Client::Client(QObject *parent) :
     QObject(parent),
-    m_pBlockSize(0U),
-    isLogin(false)
+    m_pBlockSize(0U)
 {
-    this->m_pTcpSocket = new QTcpSocket();
+    this->m_pTcpSocket = new QTcpSocket(this);
 
     connect(m_pTcpSocket, SIGNAL(connected()), this, SLOT(connectedServer()));
     connect(m_pTcpSocket, SIGNAL(connected()), this, SIGNAL(connected()));
@@ -18,16 +17,6 @@ Client::Client(QObject *parent) :
 Client::~Client()
 {}
 
-bool Client::isConnected()
-{
-    return m_pTcpSocket->state() == QAbstractSocket::ConnectedState;
-}
-
-bool Client::isAuth()
-{
-    return isLogin;
-}
-
 void Client::connectServer(const QHostAddress& addr, const quint16& port)
 {
     m_pTcpSocket->connectToHost(addr, port);
@@ -36,7 +25,6 @@ void Client::connectServer(const QHostAddress& addr, const quint16& port)
 void Client::disconnectServer()
 {
     m_pTcpSocket->disconnectFromHost();
-    isLogin = false;
 }
 
 void Client::sendMessage(const QString& username, const QString& message)
@@ -57,7 +45,6 @@ void Client::sendMessage(const QString& username, const QString& message)
 
 void Client::sendFile(const QString& username, const QString& filename)
 {
-    emit fileProgressStart();
     constexpr quint64 bytes_per_read = 1024*1024*1; // 1MB
     QFile file(filename);
     file.open(QIODevice::ReadOnly);
@@ -81,11 +68,9 @@ void Client::sendFile(const QString& username, const QString& filename)
                             setCommandCode(Command::File).
                             serialize());
         m_pTcpSocket->waitForReadyRead();
-        emit fileProgressChanged(100.0 / number_of_blocks * current_block);
         ++current_block;
     }
     file.close();
-    emit fileProgressEnd();
 }
 
 void Client::downloadRequestFile(const QString& username, const QString& filename, const QString& filename_original)
@@ -103,20 +88,17 @@ void Client::downloadRequestFile(const QString& username, const QString& filenam
 
 void Client::readFile(const JsonFile& json)
 {
-    emit fileProgressStart();
     QString filename = json.getFilePath() + "/" + json.getFileName();
     qDebug() << filename;
     QFile file(filename);
     file.open(QIODevice::WriteOnly | QIODevice::Append);
     file.write(QByteArray::fromHex(json.getFileData().toUtf8()));
     file.close();
-    emit fileProgressChanged(100.0 / json.getNumberOfBlocks() * json.getCurrentBlock());
     if(json.getNumberOfBlocks() == json.getCurrentBlock())
     {
         file.open(QIODevice::ReadOnly);
         QByteArray hash = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Md5).toHex();
         file.close();
-        emit fileProgressEnd();
     }
     m_pTcpSocket->write(JsonBuilder().
                         setCommandCode(Command::FileAccepted).
@@ -161,13 +143,13 @@ void Client::readSocket()
 
     if(m_pBlockSize == 0)
     {
-        if(m_pTcpSocket->bytesAvailable() < sizeof(m_pBlockSize))
+        if(static_cast<quint64>(m_pTcpSocket->bytesAvailable()) < sizeof(m_pBlockSize))
         {
             return;
         }
         in >> m_pBlockSize;
     }
-    if(m_pTcpSocket->bytesAvailable() < m_pBlockSize)
+    if(static_cast<quint64>(m_pTcpSocket->bytesAvailable()) < m_pBlockSize)
     {
         return;
     }
@@ -205,7 +187,6 @@ void Client::parse(const QByteArray& received)
         emit loginFailed("Wrong login or password");
         break;
     case Command::SuccsConnect:
-        isLogin = true;
         emit successAuthorizated(jsonObject);
         break;
     case Command::ListOfOnlineUsers:

@@ -26,8 +26,13 @@ public:
     explicit Chat(QWidget *parent = nullptr);
     ~Chat();
 signals:
+    void connectServer(const QHostAddress& addr, const quint16& port);
+    void disconnectServer();
+    void loginUser(const QString&, const QString&);
+    void registerUser(const QString&, const QString&);
     void downloadFile(const QString&, const QString&, const QString&);
     void sendFile(const QString&, const QString&);
+    void sendMessage(const QString&, const QString&);
 private slots:
     void connectClicked();
     void disconnectClicked();
@@ -52,13 +57,11 @@ private slots:
     void updateListOfMessages(JsonMessage json);
     void updateListOfOnlineUsers(JsonUser json);
     void updateListOfFiles(JsonFile json);
-
-    void fileProgressStarted();
-    void fileProgressEnded();
-    void setChatCursorToEnd();
 private:
+    QThread clientThread;
     Ui::Chat *ui_chat;
-    Client* client;
+    bool isConnected;
+    bool isAuthorized;
 };
 
 #endif // CHAT_H
