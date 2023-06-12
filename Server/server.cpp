@@ -28,6 +28,7 @@ void Server::newConnection()
     qDebug() << "Accept connection";
     QTcpSocket* clientSocket = m_pTcpServer->nextPendingConnection();
     m_pUsersWaitingForLogin.insert(clientSocket);
+    m_pNextBlockSize[clientSocket] = 0U;
     connect(clientSocket, SIGNAL(readyRead()), this, SLOT(readSocket()));
     connect(clientSocket, SIGNAL(disconnected()), this, SLOT(onDisconnect()));
 }
@@ -36,6 +37,7 @@ void Server::onDisconnect()
 {
     QTcpSocket* clientSocket = qobject_cast<QTcpSocket*>(sender());
     QString name = m_pUsersLogged[clientSocket];
+    m_pNextBlockSize.remove(clientSocket);
     m_pUsersLogged.remove(clientSocket);
     m_pUsersWaitingForLogin.remove(clientSocket);
     sendForAll(serializeOnlineList());
@@ -76,21 +78,21 @@ void Server::readSocket()
 
     QDataStream in(socketSender);
     qDebug() << socketSender->bytesAvailable();
-    if(m_pNextBlockSize == 0)
+    if(m_pNextBlockSize[socketSender] == 0U)
     {
-        if(socketSender->bytesAvailable() < sizeof(m_pNextBlockSize))
+        if(socketSender->bytesAvailable() < sizeof(m_pNextBlockSize[socketSender]))
         {
             return;
         }
-        in >> m_pNextBlockSize;
+        in >> m_pNextBlockSize[socketSender];
     }
-    if(socketSender->bytesAvailable() < m_pNextBlockSize)
+    if(socketSender->bytesAvailable() < m_pNextBlockSize[socketSender])
     {
         return;
     }
     else
     {
-        m_pNextBlockSize = 0;
+        m_pNextBlockSize[socketSender] = 0U;
     }
 
     parse(socketSender, socketSender->readAll());
