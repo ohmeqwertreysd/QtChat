@@ -3,19 +3,19 @@
 FileWidgetItem::FileWidgetItem(QWidget* parent)
     : QWidget(parent)
 {
-    this->filename_displayed = new QLabel();
-    this->filelength = new QLabel();
-    this->datetime = new QLabel();
-    this->icon = new QLabel();
-    this->textLayout = new QVBoxLayout();
+    this->filename_displayed = new QLabel;
+    this->filelength = new QLabel;
+    this->datetime = new QLabel;
+    this->icon = new QLabel;
+    this->textLayout = new QVBoxLayout;
     this->textLayout->addWidget(this->filename_displayed);
     this->textLayout->addWidget(this->filelength);
     this->textLayout->addWidget(this->datetime);
     this->textLayout->setSpacing(0);
-    this->formLayout = new QHBoxLayout();
+    this->formLayout = new QHBoxLayout;
+    this->formLayout->layout()->setContentsMargins(1,1,1,1);
     this->formLayout->addWidget(this->icon, 0);
     this->formLayout->addLayout(textLayout, 1);
-    this->formLayout->layout()->setContentsMargins(1,1,1,1);
     this->setLayout(formLayout);
 
 
