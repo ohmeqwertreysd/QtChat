@@ -23,8 +23,6 @@ class Client : public QObject
 public:
     explicit Client(QObject *parent = nullptr);
     ~Client();
-    bool isConnected();
-    bool isAuth();
 public slots:
     void connectServer(const QHostAddress& addr, const quint16& port);
     void disconnectServer();
@@ -36,7 +34,6 @@ public slots:
     void loginUser(const QString& username, const QString& password);
 signals:
     void successAuthorizated(const QJsonObject&);
-    void fileProgressChanged(const int&);
 
     void listOfUsersReceived(JsonUser);
     void listOfFilesReceived(JsonFile);
@@ -60,10 +57,7 @@ private slots:
 private:
     void parse(const QByteArray& received);
 private:
-    bool isLogin;
     QTcpSocket* m_pTcpSocket;
-    QHostAddress m_pAddr;
-    quint16 m_pPort;
     quint64 m_pBlockSize;
 };
 

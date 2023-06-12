@@ -25,7 +25,9 @@ public:
     explicit JsonBuilder(const JsonMessageBuilder& jsonMessage);
     explicit JsonBuilder(const JsonFileBuilder& jsonFile);
     JsonBuilder& insertJsonUsers(const QJsonArray& jsonUsers);
+    JsonBuilder& insertJsonMessage(const QJsonObject& jsonMessage);
     JsonBuilder& insertJsonMessages(const QJsonArray& jsonMessages);
+    JsonBuilder& insertJsonFile(const QJsonObject& jsonFile);
     JsonBuilder& insertJsonFiles(const QJsonArray& jsonFiles);
 
     JsonBuilder& setCommandCode(Command command);

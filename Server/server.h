@@ -45,7 +45,7 @@ private:
 private:
     Database* m_pDB;
     QTcpServer* m_pTcpServer;
-    quint64 m_pNextBlockSize;
+    QHash<QTcpSocket*, quint64> m_pNextBlockSize;
     QHash<QTcpSocket*, QString> m_pUsersLogged;
     QSet<QTcpSocket*> m_pUsersWaitingForLogin;
 };

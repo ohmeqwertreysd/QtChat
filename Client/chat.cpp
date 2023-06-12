@@ -4,8 +4,11 @@
 Chat::Chat(QWidget *parent) :
     QMainWindow(parent),
     ui_chat(new Ui::Chat),
-    client(new Client())
+    isConnected(false),
+    isAuthorized(false)
 {
+    Client* client = new Client;
+    client->moveToThread(&clientThread);
     ui_chat->setupUi(this);
     ui_chat->progressBar->setVisible(false);
     connect(ui_chat->connectButton, SIGNAL(clicked()), this, SLOT(connectClicked()));
@@ -13,7 +16,6 @@ Chat::Chat(QWidget *parent) :
     connect(ui_chat->sendButton, SIGNAL(clicked()), this, SLOT(sendClicked()));
     connect(ui_chat->loginButton, SIGNAL(clicked()), this, SLOT(loginClicked()));
     connect(ui_chat->registrationButton, SIGNAL(clicked()), this, SLOT(registrationClicked()));
-    connect(ui_chat->chatBrowser, SIGNAL(textChanged()), this, SLOT(setChatCursorToEnd()));
     connect(ui_chat->downloadButton, SIGNAL(clicked()), this, SLOT(downloadClicked()));
     connect(ui_chat->uploadButton, SIGNAL(clicked()), this, SLOT(uploadClicked()));
 
@@ -30,69 +32,87 @@ Chat::Chat(QWidget *parent) :
     connect(client, SIGNAL(listOfUsersReceived(JsonUser)), this, SLOT(updateListOfOnlineUsers(JsonUser)));
     connect(client, SIGNAL(listOfFilesReceived(JsonFile)), this, SLOT(updateListOfFiles(JsonFile)));
 
-    connect(client, SIGNAL(fileProgressChanged(int)), ui_chat->progressBar, SLOT(setValue(int)));
-    connect(client, SIGNAL(fileProgressStart()), this, SLOT(fileProgressStarted()));
-    connect(client, SIGNAL(fileProgressEnd()), this, SLOT(fileProgressEnded()));
-
+    connect(this, SIGNAL(connectServer(QHostAddress,quint16)), client, SLOT(connectServer(QHostAddress,quint16)));
+    connect(this, SIGNAL(disconnectServer()), client, SLOT(disconnectServer()));
+    connect(this, SIGNAL(loginUser(QString,QString)), client, SLOT(loginUser(QString,QString)));
+    connect(this, SIGNAL(registerUser(QString,QString)), client, SLOT(registerUser(QString,QString)));
     connect(this, SIGNAL(downloadFile(QString,QString,QString)), client, SLOT(downloadRequestFile(QString,QString,QString)));
     connect(this, SIGNAL(sendFile(QString,QString)), client, SLOT(sendFile(QString,QString)));
+    connect(this, SIGNAL(sendMessage(QString,QString)), client, SLOT(sendMessage(QString,QString)));
+    clientThread.start();
 }
 
 Chat::~Chat()
 {
+    clientThread.quit();
+    clientThread.wait();
     delete ui_chat;
 }
 
 void Chat::connectClicked()
 {
-    if(client->isConnected())
+    if(this->isConnected)
     {
-        return;
+        QMessageBox dialog(QMessageBox::Warning, "Connection", "You are already connected to the server");
+        dialog.exec();
     }
-
-    client->connectServer(QHostAddress(ui_chat->addrString->text()), ui_chat->portString->text().toUInt());
+    else
+    {
+        emit connectServer(QHostAddress(ui_chat->addrString->text()), ui_chat->portString->text().toUInt());
+    }
 }
 
 void Chat::disconnectClicked()
 {
-    if(!client->isConnected())
+    if(!this->isConnected)
     {
-        return;
+        QMessageBox dialog(QMessageBox::Warning, "Connection", "You are not connected to the server");
+        dialog.exec();
     }
-
-    client->disconnectServer();
+    else
+    {
+        emit disconnectServer();
+    }
 }
 
 void Chat::sendClicked()
 {
-    if(ui_chat->messageString->text().isEmpty() || !client->isConnected() || !client->isAuth())
+    if(!ui_chat->messageString->text().isEmpty() && this->isConnected && this->isAuthorized)
     {
-        return;
+        emit sendMessage(ui_chat->usernameString->text(), ui_chat->messageString->text());
+        ui_chat->messageString->clear();
     }
-    client->sendMessage(ui_chat->usernameString->text(), ui_chat->messageString->text());
-    ui_chat->messageString->clear();
 }
 
 void Chat::loginClicked()
 {
-    if(client->isConnected() && !client->isAuth())
+    if(this->isConnected && !this->isAuthorized)
     {
-        qDebug() << "login";
-        client->loginUser(ui_chat->usernameString->text(), ui_chat->passwordString->text());
+        emit loginUser(ui_chat->usernameString->text(), ui_chat->passwordString->text());
+    }
+    else
+    {
+        QMessageBox dialog(QMessageBox::Warning, "Connection", "You are not connected to the server");
+        dialog.exec();
     }
 }
 
 void Chat::registrationClicked()
 {
-    if(client->isConnected() && !client->isAuth())
+    if(this->isConnected && !this->isAuthorized)
     {
-        client->registerUser(ui_chat->usernameString->text(), ui_chat->passwordString->text());
+        emit registerUser(ui_chat->usernameString->text(), ui_chat->passwordString->text());
+    }
+    else
+    {
+        QMessageBox dialog(QMessageBox::Warning, "Connection", "You are not connected to the server");
+        dialog.exec();
     }
 }
 
 void Chat::downloadClicked()
 {
-    if(!client->isConnected() || !client->isAuth())
+    if(!this->isConnected || !this->isAuthorized)
     {
         return;
     }
@@ -109,12 +129,11 @@ void Chat::downloadClicked()
 
 void Chat::uploadClicked()
 {
-    if(!client->isConnected() || !client->isAuth())
+    if(this->isConnected && this->isAuthorized)
     {
-        return;
+        QString filename = QFileDialog::getOpenFileName(this, "Choose file");
+        emit sendFile(ui_chat->usernameString->text(), filename);
     }
-    QString filename = QFileDialog::getOpenFileName(this, "Choose file");
-    emit sendFile(ui_chat->usernameString->text(), filename);
 }
 
 void Chat::sendPressed()
@@ -131,12 +150,15 @@ void Chat::sendReleased()
 
 void Chat::clientConnected()
 {
+    this->isConnected = true;
     QMessageBox dialog(QMessageBox::Information, "Log in", "Sign in or Register");
     dialog.exec();
 }
 
 void Chat::clientDisconnected()
 {
+    this->isConnected = false;
+    this->isAuthorized = false;
     ui_chat->usersList->clear();
     ui_chat->filesListWidget->clear();
     ui_chat->chatBrowser->clear();
@@ -149,12 +171,14 @@ void Chat::errorOccured(QAbstractSocket::SocketError socketError)
 
 void Chat::loginFailed(const QString& error)
 {
+    this->isAuthorized = false;
     QMessageBox dialog(QMessageBox::Warning, "Log in", error);
     dialog.exec();
 }
 
 void Chat::successAuthorization(const QJsonObject& json)
 {
+    this->isAuthorized = true;
     updateListOfMessages(JsonMessage(json));
     updateListOfFiles(JsonFile(json));
 }
@@ -170,7 +194,7 @@ void Chat::showNewMessage(const JsonMessage& json)
 
 void Chat::showNewFile(const JsonFile& json)
 {
-    FileWidgetItem* item = new FileWidgetItem(this);
+    FileWidgetItem* item = new FileWidgetItem();
     item->setFileName(json.getFileName(), ui_chat->filesListWidget->batchSize());
     item->setFileLength(json.getFileLength());
     item->setDateTime(json.getDateTime());
@@ -192,7 +216,6 @@ void Chat::updateListOfMessages(JsonMessage json)
 void Chat::updateListOfOnlineUsers(JsonUser json)
 {
     ui_chat->usersList->clear();
-    qDebug() << "User list";
     while(json.next())
     {
         qDebug() << json.getUserName();
@@ -202,26 +225,9 @@ void Chat::updateListOfOnlineUsers(JsonUser json)
 
 void Chat::updateListOfFiles(JsonFile json)
 {
+    qDebug() << "updateListOfFiles";
     while(json.next())
     {
         showNewFile(json);
     }
-}
-
-void Chat::fileProgressStarted()
-{
-    ui_chat->progressBar->setVisible(true);
-}
-
-void Chat::fileProgressEnded()
-{
-    ui_chat->progressBar->setVisible(false);
-    ui_chat->progressBar->setValue(0);
-}
-
-void Chat::setChatCursorToEnd()
-{
-    QTextCursor cursor = ui_chat->chatBrowser->textCursor();
-    cursor.movePosition(QTextCursor::EndOfLine);
-    ui_chat->chatBrowser->setTextCursor(cursor);
 }
