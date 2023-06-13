@@ -24,4 +24,5 @@ ___
 + SQLite
 ___
 ### Screenshots of the client application
+![qtchat](https://github.com/ohmeqwertreysd/QtChat/assets/43862902/446bd2e0-56cc-420c-ad61-830b598485ce)
 ![qtchat](https://github.com/ohmeqwertreysd/QtChat/assets/43862902/9ba31f20-d673-40e3-aa8d-d88731a03a54)
