@@ -10,8 +10,8 @@
 #include <QDateTime>
 #include <QThread>
 #include "filewidgetitem.h"
-#include "../src/jsonbuild.h"
-#include "../src/jsonparse.h"
+#include "jsonbuild.h"
+#include "jsonparse.h"
 #include "client.h"
 
 namespace Ui {

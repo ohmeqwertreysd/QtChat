@@ -13,8 +13,8 @@
 #include <QJsonArray>
 #include <QDateTime>
 #include <QCryptographicHash>
-#include "../src/jsonbuild.h"
-#include "../src/jsonparse.h"
+#include "jsonbuild.h"
+#include "jsonparse.h"
 
 class Client : public QObject
 {

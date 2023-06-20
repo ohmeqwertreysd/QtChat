@@ -1,14 +1,16 @@
-
 #ifndef SERVER_H
 #define SERVER_H
 
 
 #include <QObject>
 #include <QDebug>
+#include <QThread>
+#include <QThreadPool>
+#include <functional>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QHash>
-#include <QSet>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -16,8 +18,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include "../src/jsonbuild.h"
-#include "../src/jsonparse.h"
+#include "threadsafequeue.h"
+#include "threadsafeuser.h"
+#include "jsonbuild.h"
+#include "jsonparse.h"
 #include "database.h"
 
 typedef bool(Database::*authFunc)(const QJsonObject&);
@@ -43,11 +47,14 @@ private:
     QByteArray serializeOnlineList();
     void tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObject& json_obj, Command command);
 private:
+    typedef QPair<QTcpSocket*, QByteArray> package;
+    typedef ThreadSafeQueue<package> packageQueue;
     Database* m_pDB;
     QTcpServer* m_pTcpServer;
-    QHash<QTcpSocket*, quint64> m_pNextBlockSize;
-    QHash<QTcpSocket*, QString> m_pUsersLogged;
-    QSet<QTcpSocket*> m_pUsersWaitingForLogin;
+    ThreadSafeUser m_pUsers;
+    packageQueue receivedPackages;
+    packageQueue sendPackages;
+    mutable QMutex fileReadMutex;
 };
 
 #endif // MYSERVER_H

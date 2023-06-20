@@ -11,8 +11,8 @@
 #include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonArray>
-#include "../src/jsonbuild.h"
-#include "../src/jsonparse.h"
+#include "jsonbuild.h"
+#include "jsonparse.h"
 
 class Database : public QObject
 {
