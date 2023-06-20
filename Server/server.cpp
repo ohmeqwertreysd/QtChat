@@ -3,11 +3,43 @@
 Server::Server(QObject *parent) :
     QObject(parent)
 {
-    this->m_pTcpServer = new QTcpServer(this);
-    this->m_pDB = new Database(this);
+    this->m_pTcpServer = new QTcpServer;
+    this->m_pDB = new Database;
     if(m_pTcpServer->listen(QHostAddress::LocalHost, 1234))
     {
         connect(m_pTcpServer, SIGNAL(newConnection()), this, SLOT(newConnection()));
+    }
+
+    std::function<void()> fReceived = [this](){
+        package pack;
+        forever
+        {
+            if(receivedPackages.tryDequeue(pack))
+            {
+                parse(pack.first, pack.second);
+            }
+        }
+    };
+
+    std::function<void()> fSend = [this](){
+        package pack;
+        forever
+        {
+            if(sendPackages.tryDequeue(pack))
+            {
+                qDebug() << "write to socket start";
+                QTcpSocket* socket = pack.first;
+                socket->write(pack.second);
+                socket->waitForBytesWritten();
+                qDebug() << "write to socket end";
+            }
+        }
+    };
+    QThreadPool* threadPool = QThreadPool::globalInstance();
+    threadPool->start(fSend);
+    for(int i = 0; i < threadPool->maxThreadCount() - 2; ++i)
+    {
+        threadPool->start(fReceived);
     }
 }
 
@@ -16,46 +48,42 @@ Server::~Server()
 
 void Server::sendForAll(const QByteArray& json)
 {
-    for(auto [key, value] : m_pUsersLogged.asKeyValueRange())
+    QList<QTcpSocket*> sockets = m_pUsers.getSockets();
+    for(QTcpSocket* socket : sockets)
     {
-        key->write(json);
-        key->waitForBytesWritten();
+        sendPackages.enqueue(package(socket, json));
     }
 }
 
 void Server::newConnection()
 {
-    qDebug() << "Accept connection";
+    qDebug() << "Connect";
     QTcpSocket* clientSocket = m_pTcpServer->nextPendingConnection();
-    m_pUsersWaitingForLogin.insert(clientSocket);
-    m_pNextBlockSize[clientSocket] = 0U;
     connect(clientSocket, SIGNAL(readyRead()), this, SLOT(readSocket()));
     connect(clientSocket, SIGNAL(disconnected()), this, SLOT(onDisconnect()));
+    m_pUsers.insertNewUser(clientSocket);
 }
 
 void Server::onDisconnect()
 {
+    qDebug() << "Disconnect";
     QTcpSocket* clientSocket = qobject_cast<QTcpSocket*>(sender());
-    QString name = m_pUsersLogged[clientSocket];
-    m_pNextBlockSize.remove(clientSocket);
-    m_pUsersLogged.remove(clientSocket);
-    m_pUsersWaitingForLogin.remove(clientSocket);
+    disconnect(clientSocket, SIGNAL(readyRead()), this, SLOT(readSocket()));
+    disconnect(clientSocket, SIGNAL(disconnected()), this, SLOT(onDisconnect()));
+    m_pUsers.removeUser(clientSocket);
     sendForAll(serializeOnlineList());
-    qDebug() << QString("%1 left").arg(name);
 }
 
 void Server::successfulAuthorization(QTcpSocket* socketSender, const QString& username)
 {
-    m_pUsersLogged.insert(socketSender, username);
-    m_pUsersWaitingForLogin.remove(socketSender);
+    m_pUsers.moveUserToLogin(socketSender, username);
     sendForAll(serializeOnlineList());
     QByteArray byteArray = JsonBuilder().
         insertJsonMessages(m_pDB->getChatHistory()).
         insertJsonFiles(m_pDB->getFiles()).
         setCommandCode(Command::SuccsConnect).
         serialize();
-    socketSender->write(byteArray);
-    socketSender->waitForBytesWritten();
+    sendPackages.enqueue(package(socketSender, byteArray));
 }
 
 void Server::tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObject& json_obj, Command command)
@@ -67,7 +95,7 @@ void Server::tryToLoginUser(authFunc f, QTcpSocket* socketSender, const QJsonObj
     }
     else
     {
-        socketSender->write(JsonBuilder().setCommandCode(command).serialize());
+        sendPackages.enqueue(package(socketSender, JsonBuilder().setCommandCode(command).serialize()));
     }
 }
 
@@ -78,28 +106,30 @@ void Server::readSocket()
 
     QDataStream in(socketSender);
     qDebug() << socketSender->bytesAvailable();
-    if(m_pNextBlockSize[socketSender] == 0U)
+    if(m_pUsers.getNextBlockSize(socketSender) == 0U)
     {
-        if(socketSender->bytesAvailable() < sizeof(m_pNextBlockSize[socketSender]))
+        if(socketSender->bytesAvailable() < sizeof(quint64))
         {
             return;
         }
-        in >> m_pNextBlockSize[socketSender];
+        quint64 blockSize;
+        in >> blockSize;
+        m_pUsers.setNextBlockSize(socketSender, blockSize);
     }
-    if(socketSender->bytesAvailable() < m_pNextBlockSize[socketSender])
+    if(socketSender->bytesAvailable() < m_pUsers.getNextBlockSize(socketSender))
     {
         return;
     }
     else
     {
-        m_pNextBlockSize[socketSender] = 0U;
+        m_pUsers.setNextBlockSize(socketSender, 0U);
     }
-
-    parse(socketSender, socketSender->readAll());
+    receivedPackages.enqueue(package(socketSender, socketSender->readAll()));
 }
 
 void Server::parse(QTcpSocket* socketSender, const QByteArray& received)
 {
+    qDebug() << QThread::currentThreadId();
     JsonParse jsonParse;
     jsonParse.deserialize(received);
     QJsonObject jsonObject = jsonParse.getJsonObject();
@@ -128,7 +158,7 @@ void Server::parse(QTcpSocket* socketSender, const QByteArray& received)
 void Server::readMessage(QTcpSocket* socketSender, const QJsonObject& json_obj)
 {
     JsonMessageBuilder jsonMessageBuilder(JsonMessage(json_obj).getJsonFile());
-    jsonMessageBuilder.setUserName(m_pUsersLogged[socketSender]);
+    jsonMessageBuilder.setUserName(m_pUsers.getUserName(socketSender));
     jsonMessageBuilder.setDateTime(QDateTime::currentDateTime().toString("dd.MM.yy hh:mm"));
     JsonBuilder jsonBuilder(jsonMessageBuilder);
     jsonBuilder.setCommandCode(Command::Message);
@@ -141,9 +171,12 @@ void Server::readFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
     JsonFile jsonFile(json_obj);
     QDir(QDir::homePath()).mkdir("Files");
     QFile file(QDir::homePath() + "/Files/" + jsonFile.getFileName());
-    file.open(QIODevice::WriteOnly | QIODevice::Append);
-    file.write(QByteArray::fromHex(jsonFile.getFileData().toUtf8()));
-    file.close();
+    {
+        QMutexLocker lk(&fileReadMutex);
+        file.open(QIODevice::WriteOnly | QIODevice::Append);
+        file.write(QByteArray::fromHex(jsonFile.getFileData().toUtf8()));
+        file.close();
+    }
 
     if(jsonFile.getNumberOfBlocks() == jsonFile.getCurrentBlock())
     {
@@ -155,12 +188,12 @@ void Server::readFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
             QString dateTime = QDateTime::currentDateTime().toString("dd.MM.yy hh:mm");
             JsonFileBuilder jsonFileBuilder(jsonFile.getJsonFile());
             jsonFileBuilder.setFileData("").
-                setUserName(m_pUsersLogged[socketSender]).
+                setUserName(m_pUsers.getUserName(socketSender)).
                 setDateTime(dateTime).
                 setFilePath(QDir::homePath() + "/Files/");
             m_pDB->insertFile(JsonBuilder(jsonFileBuilder).getJsonObject());
             JsonMessageBuilder jsonMessageBuilder;
-            jsonMessageBuilder.setUserName(m_pUsersLogged[socketSender]);
+            jsonMessageBuilder.setUserName(m_pUsers.getUserName(socketSender));
             jsonMessageBuilder.setDateTime(dateTime);
             jsonMessageBuilder.setMessage("Sent the file \"" + jsonFile.getFileName() + "\"");
             JsonBuilder jsonBuilder;
@@ -171,8 +204,7 @@ void Server::readFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
             sendForAll(jsonBuilder.serialize());
         }
     }
-
-    socketSender->write(JsonBuilder().setCommandCode(Command::FileAccepted).serialize());
+    sendPackages.enqueue(package(socketSender, JsonBuilder().setCommandCode(Command::FileAccepted).serialize()));
 }
 
 void Server::sendFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
@@ -195,10 +227,9 @@ void Server::sendFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
         QByteArray block = file.read(bytes_per_read);
         jsonFileBuilder.setCurrentBlock(current_block++);
         jsonFileBuilder.setFileData(QString(block.toHex()));
-        socketSender->write(JsonBuilder(jsonFileBuilder).
-                            setCommandCode(Command::File).
-                            serialize());
-        socketSender->waitForReadyRead();
+        sendPackages.enqueue(package(socketSender, JsonBuilder(jsonFileBuilder).
+                                                   setCommandCode(Command::File).
+                                                   serialize()));
     }
     file.close();
 }
@@ -206,9 +237,10 @@ void Server::sendFile(QTcpSocket* socketSender, const QJsonObject& json_obj)
 QByteArray Server::serializeOnlineList()
 {
     JsonUserBuilder jsonUserBuilder;
-    for(auto [key, value] : m_pUsersLogged.asKeyValueRange())
+    QList<QString> userNames = m_pUsers.getUserNames();
+    for(const QString& name : userNames)
     {
-        jsonUserBuilder.setUserName(value);
+        jsonUserBuilder.setUserName(name);
         jsonUserBuilder.appendUser();
     }
 
